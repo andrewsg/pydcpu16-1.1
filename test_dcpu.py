@@ -432,9 +432,11 @@ def test_IFE(cpu):
     assert cpu.reg.pc == 1
 
     cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xc)) # skip next instruction unless a == 2
+    cpu.ram.set(0x0002, 0x7803) # sub A, [next_word]
+    cpu.ram.set(0x0003, 0x1000) # aforementioned next word
     cpu.step()
     assert cpu.cycle == 5
-    assert cpu.reg.pc == 3
+    assert cpu.reg.pc == 4 # must skip BOTH words of next command
 
 def test_IFN(cpu):
     cpu.reg.a = 0x0002
@@ -444,21 +446,27 @@ def test_IFN(cpu):
     assert cpu.reg.pc == 1
 
     cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xd)) # skip next instruction unless a != 2
+    cpu.ram.set(0x0002, 0x7803) # sub A, [next_word]
+    cpu.ram.set(0x0003, 0x1000) # aforementioned next word
     cpu.step()
     assert cpu.cycle == 5
-    assert cpu.reg.pc == 3
+    assert cpu.reg.pc == 4 # must skip BOTH words of next command
 
 def test_IFG(cpu):
     cpu.reg.a = 0x0002
     cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0xe)) # skip next instruction unless a > 1
+    cpu.ram.set(0x0002, 0x7803) # sub A, [next_word]
+    cpu.ram.set(0x0003, 0x1000) # aforementioned next word
     cpu.step()
     assert cpu.cycle == 2
     assert cpu.reg.pc == 1
 
     cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xe)) # skip next instruction unless a > 2
+    cpu.ram.set(0x0002, 0x7803) # sub A, [next_word]
+    cpu.ram.set(0x0003, 0x1000) # aforementioned next word
     cpu.step()
     assert cpu.cycle == 5
-    assert cpu.reg.pc == 3
+    assert cpu.reg.pc == 4 # must skip BOTH words of next command
 
 def test_IFB(cpu):
     cpu.reg.a = 0x0001
@@ -470,7 +478,7 @@ def test_IFB(cpu):
     cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xf)) # skip next instruction unless a & 2 != 0
     cpu.step()
     assert cpu.cycle == 5
-    assert cpu.reg.pc == 3
+    assert cpu.reg.pc == 3 # must skip BOTH words of next command
 
 def test_JSR(cpu):
     cpu.ram.set(0x0000, compile_word(0x25, 0x01, 0x00)) # push address of next instruction to stack and jump to 5
@@ -478,3 +486,13 @@ def test_JSR(cpu):
     assert cpu.cycle == 2
     assert cpu.reg.pc == 5
     assert cpu.peek() == 1
+
+def test_a_handled_before_b(cpu):
+    cpu.ram.set(0x0000, 0x7de1) # SET [next_word], next_word
+    cpu.ram.set(0x0001, 0x1000)
+    cpu.ram.set(0x0002, 0x0020)
+    cpu.step()
+    assert cpu.cycle == 3
+    assert cpu.reg.pc == 3
+    assert cpu.ram.get(0x1000) == 0x0020
+    assert cpu.ram.get(0x0020) != 0x1000

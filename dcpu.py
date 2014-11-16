@@ -1,4 +1,5 @@
 from enum import Enum
+from functools import partial
 
 class Opcode(Enum):
     NONBASIC = 0x0
@@ -119,9 +120,9 @@ class CPU():
         self.cycle = initial_cycle
 
         self.value_codes = {}
-        self.value_codes.update({x: lambda: self.reg[self.reg.regs[x]] for x in range(0x00, 0x08)})
-        self.value_codes.update({x + 0x08: lambda: self.ram.get(self.reg[self.reg.regs[x]]) for x in range(0x00, 0x08)})
-        self.value_codes.update({x + 0x10: lambda: self.ram.get(self.add(self.next_word(), self.reg[self.reg.regs[x]])) for x in range(0x00, 0x08)})
+        self.value_codes.update({x: partial(lambda y: self.reg[self.reg.regs[y]], x) for x in range(0x00, 0x08)})
+        self.value_codes.update({x + 0x08: partial(lambda y: self.ram.get(self.reg[self.reg.regs[y]]), x) for x in range(0x00, 0x08)})
+        self.value_codes.update({x + 0x10: partial(lambda y: self.ram.get(self.add(self.next_word(), self.reg[self.reg.regs[y]])), x) for x in range(0x00, 0x08)})
 
         self.value_codes.update({
             0x18: lambda: self.pop(),
@@ -138,9 +139,9 @@ class CPU():
             self.value_codes[x + 0x20] = lambda: x
 
         self.set_codes = {}
-        self.set_codes.update({x: lambda value: self.reg.__setitem__(self.reg.regs[x], value) for x in range(0x00, 0x08)})
-        self.set_codes.update({x + 0x08: lambda value: self.ram.set(self.reg[self.reg.regs[x]], value) for x in range(0x00, 0x08)})
-        self.set_codes.update({x + 0x10: lambda value: self.ram.set(self.add(self.next_word(), self.reg[self.reg.regs[x]]), value) for x in range(0x00, 0x08)})
+        self.set_codes.update({x: partial(lambda y, value: self.reg.__setitem__(self.reg.regs[y], value), x) for x in range(0x00, 0x08)})
+        self.set_codes.update({x + 0x08: partial(lambda y, value: self.ram.set(self.reg[self.reg.regs[y]], value), x) for x in range(0x00, 0x08)})
+        self.set_codes.update({x + 0x10: partial(lambda y, value: self.ram.set(self.add(self.next_word(), self.reg[self.reg.regs[y]]), value), x) for x in range(0x00, 0x08)})
 
         self.set_codes.update({
             0x18: lambda value: self.pop(value),

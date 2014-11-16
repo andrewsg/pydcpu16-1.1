@@ -302,32 +302,37 @@ class CPU():
         if a == b:
             pass
         else:
-            self.cycle += 1
-            self.reg.pc += 1
+            self.skip_next_and_cycle()
 
     def IFN(self, a, b, addr):
         self.cycle += 2
         if a != b:
             pass
         else:
-            self.cycle += 1
-            self.reg.pc += 1
+            self.skip_next_and_cycle()
 
     def IFG(self, a, b, addr):
         self.cycle += 2
         if a > b:
             pass
         else:
-            self.cycle += 1
-            self.reg.pc += 1
+            self.skip_next_and_cycle()
 
     def IFB(self, a, b, addr):
         self.cycle += 2
         if a & b != 0:
             pass
         else:
-            self.cycle += 1
-            self.reg.pc += 1
+            self.skip_next_and_cycle()
+
+    def skip_next_and_cycle(self):
+        word = self.next_word() # this is destructive!
+        b, a, o = decompile_word(word)
+        if self.needs_next_word(a):
+            self.next_word()
+        if self.needs_next_word(b):
+            self.next_word()
+        self.cycle += 1
 
     def JSR(self, a, addr):
         self.cycle += 2
@@ -346,16 +351,19 @@ class CPU():
     def peek_addr(self, value=None):
         return self.reg.sp
 
+    def needs_next_word(self, operand):
+        return (0x10 <= operand <= 0x17) or operand in [0x1e, 0x1f]
+
     # This has side effects (it can increment PC or affect SP)
     def address_for_operand(self, operand):
-        if (0x10 <= operand <= 0x17) or operand in [0x1e, 0x1f]:
+        if self.needs_next_word(operand):
             self.cycle += 1
         try:
             return self.operands[operand](operand)
         except KeyError:
             return None
 
-    # This has no side effects
+    # This has no side effects.
     def get_by_address(self, address, code=None):
         if address is None and code is not None:
             return self.value_codes[code]() # TODO: refactor

@@ -158,9 +158,9 @@ class CPU():
         self.operands.update({x + 0x10: lambda code: self.next_word() + self.reg[self.reg.regs[code - 0x10]] for x in range(0x00, 0x08)})
 
         self.operands.update({
-            0x18: lambda code: self.pop_for_address(),
-            0x19: lambda code: self.peek_for_address(),
-            0x1a: lambda code: self.push_for_address(),
+            0x18: lambda code: self.pop_addr(),
+            0x19: lambda code: self.peek_addr(),
+            0x1a: lambda code: self.push_addr(),
             0x1b: lambda code: 'sp',
             0x1c: lambda code: 'pc',
             0x1d: lambda code: 'o',

@@ -498,3 +498,88 @@ def test_a_handled_before_b(cpu):
     assert cpu.cycle == 3
     assert cpu.ram.get(0x1000) == 0x0020
     assert cpu.ram.get(0x0020) != 0x1000
+
+def test_example_code():
+    contents = [0x7c01, 0x0030, 0x7de1, 0x1000,
+                0x0020, 0x7803, 0x1000, 0xc00d,
+                0x7dc1, 0x001a, 0xa861, 0x7c01,
+                0x2000, 0x2161, 0x2000, 0x8463,
+                0x806d, 0x7dc1, 0x000d, 0x9031,
+                0x7c10, 0x0018, 0x7dc1, 0x001a,
+                0x9037, 0x61c1, 0x7dc1, 0x001a]
+    ram = dcpu.RAM(word_length=16, size=0x10000, initial_contents=contents)
+    cpu = dcpu.CPU(initial_ram=ram)
+
+    cpu.step()
+    assert cpu.reg.a == 0x30
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 2
+
+    cpu.step()
+    assert cpu.ram.get(0x1000) == 0x0020
+    assert cpu.ram.get(0x0020) == 0x0000
+    assert cpu.cycle == 5
+    assert cpu.reg.pc == 5
+
+    cpu.step()
+    assert cpu.reg.a == 0x0010
+    assert cpu.cycle == 8
+    assert cpu.reg.pc == 7
+
+    cpu.step()
+    assert cpu.cycle == 11
+    assert cpu.reg.pc == 0xa
+
+    cpu.step()
+    assert cpu.reg.i == 10
+    assert cpu.cycle == 12
+    assert cpu.reg.pc == 0xb
+
+    cpu.step()
+    assert cpu.reg.a == 0x2000
+    assert cpu.cycle == 14
+    assert cpu.reg.pc == 0x000d
+
+    for _ in range(4): cpu.step()
+    assert cpu.reg.i == 9
+    assert cpu.cycle == 22
+    assert cpu.reg.pc == 0x000d
+
+    for _ in range(4 * 8): cpu.step()
+    assert cpu.reg.i == 1
+    assert cpu.cycle == 86
+    assert cpu.reg.pc == 0x000d
+
+    for _ in range(3): cpu.step()
+    assert cpu.reg.i == 0
+    assert cpu.cycle == 93
+    assert cpu.reg.pc == 0x0013
+
+    cpu.step()
+    assert cpu.reg.x == 0x4
+    assert cpu.reg.pc == 0x0014
+    assert cpu.cycle == 94
+
+    cpu.step()
+    assert cpu.reg.sp == 0xffff
+    assert cpu.ram.get(0xffff) == 0x0016
+    assert cpu.reg.pc == 0x0018
+    assert cpu.cycle == 97
+
+    cpu.step()
+    assert cpu.reg.x == 0x0040
+    assert cpu.cycle == 99
+    assert cpu.reg.pc == 0x0019
+
+    cpu.step()
+    assert cpu.reg.sp == 0x0000
+    assert cpu.reg.pc == 0x0016
+    assert cpu.cycle == 100
+
+    cpu.step()
+    assert cpu.reg.pc == 0x001a
+    assert cpu.cycle == 102
+
+    for _ in range(100): cpu.step()
+    assert cpu.reg.pc == 0x001a
+    assert cpu.cycle == 302

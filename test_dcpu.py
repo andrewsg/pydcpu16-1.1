@@ -100,6 +100,10 @@ def test_register_bank():
     with pytest.raises(KeyError):
         assert regbank['nonsense'] == 0x0000
 
+    regbank.pc = 0xffff
+    regbank.pc += 1
+    assert regbank.pc == 0x0000
+
 # "additional" is a function, to which the CPU will be passed as an argument and which must evaluate to true on success. It is optional.
 @pytest.mark.parametrize(("set_code_value_pairs", "get_code", "expected", "additional"), [
    ([(0x00, 0xffff)], 0x00, 0xffff, lambda cpu: cpu.reg['a'] == 0xffff),
@@ -195,20 +199,20 @@ def test_cpu_pop_peek_push_value_codes(cpu):
     cpu.set_by_code(0x1a, 0x0020)
     cpu.set_by_code(0x1a, 0x0030)
     cpu.set_by_code(0x1a, 0x0011)
-    assert cpu.reg['sp'] == 0x0000 - 4 % 2**cpu.reg.word_length
+    assert cpu.reg['sp'] == (0x0000 - 4) % 2**cpu.reg.word_length
     assert cpu.get_by_code(0x19) == 0x0011
     cpu.set_by_code(0x19, 0x0040)
     assert cpu.get_by_code(0x19) == 0x0040
-    assert cpu.reg['sp'] == 0x0000 - 4 % 2**cpu.reg.word_length
+    assert cpu.reg['sp'] == (0x0000 - 4) % 2**cpu.reg.word_length
     assert cpu.get_by_code(0x18) == 0x0040
-    assert cpu.reg['sp'] == 0x0000 - 3 % 2**cpu.reg.word_length
+    assert cpu.reg['sp'] == (0x0000 - 3) % 2**cpu.reg.word_length
     assert cpu.get_by_code(0x18) == 0x0030
-    assert cpu.reg['sp'] == 0x0000 - 2 % 2**cpu.reg.word_length
+    assert cpu.reg['sp'] == (0x0000 - 2) % 2**cpu.reg.word_length
     cpu.set_by_code(0x18, 0x0011)
-    assert cpu.reg['sp'] == 0x0000 - 1 % 2**cpu.reg.word_length
+    assert cpu.reg['sp'] == (0x0000 - 1) % 2**cpu.reg.word_length
     assert cpu.ram.get(cpu.reg.sp - 1) == 0x0011
     assert cpu.get_by_code(0x1a) == 0x0011
-    assert cpu.reg['sp'] == 0x0000 - 2 % 2**cpu.reg.word_length
+    assert cpu.reg['sp'] == (0x0000 - 2) % 2**cpu.reg.word_length
 
 def test_sp_pc_o_value_codes(cpu):
     cpu.set_by_code(0x1b, 0x0001)
@@ -359,3 +363,118 @@ def test_MOD_zero(cpu):
     assert cpu.cycle == 3
     assert cpu.reg.pc == 1
     assert cpu.reg.o == 0x0000
+
+def test_SHL(cpu):
+    cpu.reg.a = 0x0009
+    cpu.ram.set(0x0000, compile_word(0x22, 0x00, 0x7)) # set reg a to 9 << 2
+    cpu.step()
+    assert cpu.reg.a == 0x0024
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x0000
+
+def test_SHL_o(cpu):
+    cpu.reg.a = 0xffff
+    cpu.ram.set(0x0000, compile_word(0x22, 0x00, 0x7)) # set reg a to 0xffff << 2
+    cpu.step()
+    assert cpu.reg.a == 0xfffc
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x0003
+
+def test_SHR(cpu):
+    cpu.reg.a = 0xff00
+    cpu.ram.set(0x0000, compile_word(0x24, 0x00, 0x8)) # set reg a to 0xff00 >> 4
+    cpu.step()
+    assert cpu.reg.a == 0x0ff0
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x0000
+
+def test_SHL_o(cpu):
+    cpu.reg.a = 0xff00
+    cpu.ram.set(0x0000, compile_word(0x2c, 0x00, 0x8)) # set reg a to 0xff00 >> 12
+    cpu.step()
+    assert cpu.reg.a == 0x000f
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0xf000
+
+def test_AND(cpu):
+    cpu.reg.a = 0x0003
+    cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0x9)) # set reg a to 0b11 & 0b01
+    cpu.step()
+    assert cpu.reg.a == 0x0001
+    assert cpu.cycle == 1
+    assert cpu.reg.pc == 1
+
+def test_BOR(cpu):
+    cpu.reg.a = 0x0002
+    cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0xa)) # set reg a to 0b10 | 0b01
+    cpu.step()
+    assert cpu.reg.a == 0x0003
+    assert cpu.cycle == 1
+    assert cpu.reg.pc == 1
+
+def test_XOR(cpu):
+    cpu.reg.a = 0x0003
+    cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0xb)) # set reg a to 0b11 ^ 0b01
+    cpu.step()
+    assert cpu.reg.a == 0x0002
+    assert cpu.cycle == 1
+    assert cpu.reg.pc == 1
+
+def test_IFE(cpu):
+    cpu.reg.a = 0x0001
+    cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0xc)) # skip next instruction unless a == 1
+    cpu.step()
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+
+    cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xc)) # skip next instruction unless a == 2
+    cpu.step()
+    assert cpu.cycle == 5
+    assert cpu.reg.pc == 3
+
+def test_IFN(cpu):
+    cpu.reg.a = 0x0002
+    cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0xd)) # skip next instruction unless a != 1
+    cpu.step()
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+
+    cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xd)) # skip next instruction unless a != 2
+    cpu.step()
+    assert cpu.cycle == 5
+    assert cpu.reg.pc == 3
+
+def test_IFG(cpu):
+    cpu.reg.a = 0x0002
+    cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0xe)) # skip next instruction unless a > 1
+    cpu.step()
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+
+    cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xe)) # skip next instruction unless a > 2
+    cpu.step()
+    assert cpu.cycle == 5
+    assert cpu.reg.pc == 3
+
+def test_IFB(cpu):
+    cpu.reg.a = 0x0001
+    cpu.ram.set(0x0000, compile_word(0x21, 0x00, 0xf)) # skip next instruction unless a & 1 != 0
+    cpu.step()
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+
+    cpu.ram.set(0x0001, compile_word(0x22, 0x00, 0xf)) # skip next instruction unless a & 2 != 0
+    cpu.step()
+    assert cpu.cycle == 5
+    assert cpu.reg.pc == 3
+
+def test_JSR(cpu):
+    cpu.ram.set(0x0000, compile_word(0x25, 0x01, 0x00)) # push address of next instruction to stack and jump to 5
+    cpu.step()
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 5
+    assert cpu.peek() == 1

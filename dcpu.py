@@ -80,7 +80,6 @@ class DCPURegisterBank():
 
     def __setitem__(self, key, value):
         if key in self.all_regs:
-            value = sanitized_value(value, self.word_length)
             setattr(self, key, value)
         else:
             raise KeyError
@@ -90,6 +89,11 @@ class DCPURegisterBank():
 
     def __contains__(self, key):
         return key in self.all_regs
+
+    def __setattr__(self, name, value):
+        if name in self.all_regs:
+            value = sanitized_value(value, self.word_length)
+        super().__setattr__(name, value)
 
     def items(self):
         for key in self.all_regs:
@@ -117,7 +121,7 @@ class CPU():
 
         self.value_codes.update({
             0x18: lambda: self.pop(),
-            0x19: lambda: self.ram.get(self.reg.sp),
+            0x19: lambda: self.peek(),
             0x1a: lambda: self.push(),
             0x1b: lambda: self.reg.sp,
             0x1c: lambda: self.reg.pc,
@@ -136,7 +140,7 @@ class CPU():
 
         self.set_codes.update({
             0x18: lambda value: self.pop(value),
-            0x19: lambda value: self.ram.set(self.reg.sp, value),
+            0x19: lambda value: self.peek(value),
             0x1a: lambda value: self.push(value),
             0x1b: lambda value: self.reg.__setitem__('sp', value),
             0x1c: lambda value: self.reg.__setitem__('pc', value),
@@ -155,6 +159,16 @@ class CPU():
             Opcode.MUL: self.MUL,
             Opcode.DIV: self.DIV,
             Opcode.MOD: self.MOD,
+            Opcode.SHL: self.SHL,
+            Opcode.SHR: self.SHR,
+            Opcode.AND: self.AND,
+            Opcode.BOR: self.BOR,
+            Opcode.XOR: self.XOR,
+            Opcode.IFE: self.IFE,
+            Opcode.IFN: self.IFN,
+            Opcode.IFG: self.IFG,
+            Opcode.IFB: self.IFB,
+            NonBasicOpcode.JSR: self.JSR,
             }
 
     def next_word(self):
@@ -178,6 +192,13 @@ class CPU():
             value = self.ram.get(self.reg.sp)
         return value
 
+    def peek(self, value=None):
+        if value:
+            self.ram.set(self.reg.sp, value)
+        else:
+            value = self.ram.get(self.reg.sp)
+        return value
+
     def get_by_code(self, code):
         if (0x10 <= code <= 0x17) or code in [0x1e, 0x1f]:
             self.cycle += 1
@@ -195,12 +216,13 @@ class CPU():
         opcode = Opcode(o)
         if opcode == Opcode.NONBASIC:
             opcode = NonBasicOpcode(a)
-
-        # execute instruction
         self.execute_op(opcode, a, b)
 
     def execute_op(self, opcode, a, b):
-        self.opcodes[opcode](a, b)
+        if isinstance(opcode, NonBasicOpcode):
+            self.opcodes[opcode](b) # b becomes a
+        else:
+            self.opcodes[opcode](a, b)
 
     def SET(self, a, b):
         self.cycle += 1
@@ -242,3 +264,64 @@ class CPU():
             self.set_by_code(a, a_val % b_val)
         except ZeroDivisionError:
             self.set_by_code(a, 0)
+
+    def SHL(self, a, b):
+        self.cycle += 2
+        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
+        self.set_by_code(a, a_val<<b_val)
+        self.reg.o = ((a_val<<b_val)>>16)&0xffff
+
+    def SHR(self, a, b):
+        self.cycle += 2
+        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
+        self.set_by_code(a, a_val>>b_val)
+        self.reg.o = ((a_val<<16)>>b_val)&0xffff
+
+    def AND(self, a, b):
+        self.cycle += 1
+        self.set_by_code(a, self.get_by_code(a) & self.get_by_code(b))
+
+    def BOR(self, a, b):
+        self.cycle += 1
+        self.set_by_code(a, self.get_by_code(a) | self.get_by_code(b))
+
+    def XOR(self, a, b):
+        self.cycle += 1
+        self.set_by_code(a, self.get_by_code(a) ^ self.get_by_code(b))
+
+    def IFE(self, a, b):
+        self.cycle += 2
+        if self.get_by_code(a) == self.get_by_code(b):
+            pass
+        else:
+            self.cycle += 1
+            self.reg.pc += 1
+
+    def IFN(self, a, b):
+        self.cycle += 2
+        if self.get_by_code(a) != self.get_by_code(b):
+            pass
+        else:
+            self.cycle += 1
+            self.reg.pc += 1
+
+    def IFG(self, a, b):
+        self.cycle += 2
+        if self.get_by_code(a) > self.get_by_code(b):
+            pass
+        else:
+            self.cycle += 1
+            self.reg.pc += 1
+
+    def IFB(self, a, b):
+        self.cycle += 2
+        if self.get_by_code(a) & self.get_by_code(b) != 0:
+            pass
+        else:
+            self.cycle += 1
+            self.reg.pc += 1
+
+    def JSR(self, a):
+        self.cycle += 2
+        self.push(self.reg.pc)
+        self.reg.pc = self.get_by_code(a)

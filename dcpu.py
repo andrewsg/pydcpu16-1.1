@@ -152,6 +152,21 @@ class CPU():
         for x in range(0x20):
             self.set_codes[x + 0x20] = lambda value: None
 
+        self.operands = {}
+        self.operands.update({x: lambda code: self.reg.regs[code] for x in range(0x00, 0x08)})
+        self.operands.update({x + 0x08: lambda code: self.reg[self.reg.regs[code - 0x08]] for x in range(0x00, 0x08)})
+        self.operands.update({x + 0x10: lambda code: self.next_word() + self.reg[self.reg.regs[code - 0x10]] for x in range(0x00, 0x08)})
+
+        self.operands.update({
+            0x18: lambda code: self.pop_for_address(),
+            0x19: lambda code: self.peek_for_address(),
+            0x1a: lambda code: self.push_for_address(),
+            0x1b: lambda code: 'sp',
+            0x1c: lambda code: 'pc',
+            0x1d: lambda code: 'o',
+            0x1e: lambda code: self.next_word(),
+        })
+
         self.opcodes = {
             Opcode.SET: self.SET,
             Opcode.ADD: self.ADD,
@@ -224,104 +239,151 @@ class CPU():
         else:
             self.opcodes[opcode](a, b)
 
-    def SET(self, a, b):
+    def SET(self, a, b, addr):
         self.cycle += 1
-        self.set_by_code(a, self.get_by_code(b))
+        self.set_by_address(addr, b)
 
-    def ADD(self, a, b):
+    def ADD(self, a, b, addr):
         self.cycle += 2
-        value = self.get_by_code(a) + self.get_by_code(b)
-        self.set_by_code(a, value)
-        # technically, this doesn't support the case that ram and regs are different word lengths.
-        self.reg.o = 0 if value < 2**self.reg.word_length else 0x0001
+        value = a + b
+        self.set_by_address(addr, value)
+        self.reg.o = 0 if value < 2**16 else 0x0001
 
-    def SUB(self, a, b):
+    def SUB(self, a, b, addr):
         self.cycle += 2
-        value = self.get_by_code(a) - self.get_by_code(b)
-        self.set_by_code(a, value)
-        # technically, this doesn't support the case that ram and regs are different word lengths.
+        value = a - b
+        self.set_by_address(addr, value)
         self.reg.o = 0 if value >= 0 else 0xffff
 
-    def MUL(self, a, b):
+    def MUL(self, a, b, addr):
         self.cycle += 2
-        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
-        self.set_by_code(a, a_val * b_val)
-        self.reg.o = ((a_val*b_val)>>16)&0xffff
+        self.set_by_address(addr, a*b)
+        self.reg.o = ((a*b)>>16)&0xffff
 
-    def DIV(self, a, b):
+    def DIV(self, a, b, addr):
         self.cycle += 3
-        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
         try:
-            self.set_by_code(a, a_val // b_val)
-            self.reg.o = ((a_val<<16)//b_val)&0xffff
+            self.set_by_address(addr, a // b)
+            self.reg.o = ((a<<16)//b)&0xffff
         except ZeroDivisionError:
-            self.set_by_code(a, 0)
+            self.set_by_address(addr, 0)
 
-    def MOD(self, a, b):
+    def MOD(self, a, b, addr):
         self.cycle += 3
-        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
         try:
-            self.set_by_code(a, a_val % b_val)
+            self.set_by_address(addr, a % b)
         except ZeroDivisionError:
-            self.set_by_code(a, 0)
+            self.set_by_address(addr, 0)
 
-    def SHL(self, a, b):
+    def SHL(self, a, b, addr):
         self.cycle += 2
-        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
-        self.set_by_code(a, a_val<<b_val)
-        self.reg.o = ((a_val<<b_val)>>16)&0xffff
+        self.set_by_address(addr, a<<b)
+        self.reg.o = ((a<<b)>>16)&0xffff
 
-    def SHR(self, a, b):
+    def SHR(self, a, b, addr):
         self.cycle += 2
-        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
-        self.set_by_code(a, a_val>>b_val)
-        self.reg.o = ((a_val<<16)>>b_val)&0xffff
+        self.set_by_address(addr, a>>b)
+        self.reg.o = ((a<<16)>>b)&0xffff
 
-    def AND(self, a, b):
+    def AND(self, a, b, addr):
         self.cycle += 1
-        self.set_by_code(a, self.get_by_code(a) & self.get_by_code(b))
+        self.set_by_address(addr, a & b)
 
-    def BOR(self, a, b):
+    def BOR(self, a, b, addr):
         self.cycle += 1
-        self.set_by_code(a, self.get_by_code(a) | self.get_by_code(b))
+        self.set_by_address(addr, a | b)
 
-    def XOR(self, a, b):
+    def XOR(self, a, b, addr):
         self.cycle += 1
-        self.set_by_code(a, self.get_by_code(a) ^ self.get_by_code(b))
+        self.set_by_address(addr, a ^ b)
 
-    def IFE(self, a, b):
+    def IFE(self, a, b, addr):
         self.cycle += 2
-        if self.get_by_code(a) == self.get_by_code(b):
+        if a == b:
             pass
         else:
             self.cycle += 1
             self.reg.pc += 1
 
-    def IFN(self, a, b):
+    def IFN(self, a, b, addr):
         self.cycle += 2
-        if self.get_by_code(a) != self.get_by_code(b):
+        if a != b:
             pass
         else:
             self.cycle += 1
             self.reg.pc += 1
 
-    def IFG(self, a, b):
+    def IFG(self, a, b, addr):
         self.cycle += 2
-        if self.get_by_code(a) > self.get_by_code(b):
+        if a > b:
             pass
         else:
             self.cycle += 1
             self.reg.pc += 1
 
-    def IFB(self, a, b):
+    def IFB(self, a, b, addr):
         self.cycle += 2
-        if self.get_by_code(a) & self.get_by_code(b) != 0:
+        if a & b != 0:
             pass
         else:
             self.cycle += 1
             self.reg.pc += 1
 
-    def JSR(self, a):
+    def JSR(self, a, addr):
         self.cycle += 2
         self.push(self.reg.pc)
-        self.reg.pc = self.get_by_code(a)
+        self.reg.pc = a
+
+    def pop_addr(self, value=None):
+        address = self.reg.sp
+        self.reg.sp += 1
+        return address
+
+    def push_addr(self, value=None):
+        self.reg.sp -= 1
+        return self.reg.sp
+
+    def peek_addr(self, value=None):
+        return self.reg.sp
+
+    # This has side effects (it can increment PC or affect SP)
+    def address_for_operand(self, operand):
+        if (0x10 <= operand <= 0x17) or operand in [0x1e, 0x1f]:
+            self.cycle += 1
+        try:
+            return self.operands[operand](operand)
+        except KeyError:
+            return None
+
+    # This has no side effects
+    def get_by_address(self, address, code=None):
+        if address is None and code is not None:
+            return self.value_codes[code]() # TODO: refactor
+        elif isinstance(address, int):
+            return self.ram.get(address)
+        else:
+            return self.reg[address]
+
+    def set_by_address(self, address, value):
+        if isinstance(address, int):
+            self.ram.set(address, value)
+        else:
+            self.reg[address] = value
+
+    def step(self):
+        word = self.next_word()
+        b, a, o = decompile_word(word)
+
+        opcode = Opcode(o)
+        if opcode == Opcode.NONBASIC:
+            opcode = NonBasicOpcode(a)
+            a, b = b, None
+
+        a_addr = self.address_for_operand(a)
+        a_val = self.get_by_address(a_addr, code=a)
+        if not isinstance(opcode, NonBasicOpcode):
+            b_addr = self.address_for_operand(b)
+            b_val = self.get_by_address(b_addr, code=b)
+            self.opcodes[opcode](a_val, b_val, a_addr)
+        else:
+            self.opcodes[opcode](a_val, a_addr)

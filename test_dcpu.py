@@ -1,5 +1,5 @@
 import dcpu
-from bitarray import bitarray
+from dcpu import compile_word, decompile_word
 import pytest
 
 @pytest.fixture
@@ -120,7 +120,7 @@ def test_register_bank():
     ([(0x07, 0x0002), (0x0f, 0xffff)], 0x0f, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
     #([(0x1c, 0x0010), (0x00, 0x0010), (0x08], 0x0f, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
    ])
-def test_cpu_opcodes(cpu, set_code_value_pairs, get_code, expected, additional):
+def test_cpu_value_codes(cpu, set_code_value_pairs, get_code, expected, additional):
     for pair in set_code_value_pairs:
         cpu.set_by_code(*pair)
     assert cpu.get_by_code(get_code) == expected
@@ -137,25 +137,180 @@ def test_cpu_opcodes(cpu, set_code_value_pairs, get_code, expected, additional):
     (0x06, 0x06, 'i'),
     (0x07, 0x07, 'j'),
     ])
-def test_cpu_register_opcodes(cpu, set_code, get_code, reg):
+def test_cpu_register_value_codes(cpu, set_code, get_code, reg):
     value = 0x0101
     cpu.set_by_code(set_code, value)
     assert cpu.get_by_code(get_code) == value
     assert cpu.reg[reg] == value
 
-# @pytest.mark.parametrize(('set_code', 'get_code', 'reg'), [
-#     (0x08, 0x08, 'a'),
-#     (0x09, 0x09, 'b'),
-#     (0x0a, 0x0a, 'c'),
-#     (0x0b, 0x0b, 'x'),
-#     (0x0c, 0x0c, 'y'),
-#     (0x0d, 0x0d, 'z'),
-#     (0x0e, 0x0e, 'i'),
-#     (0x0f, 0x0f, 'j'),
-#     ])
-# def test_cpu_register_memory_opcodes(cpu, set_code, get_code, reg):
-#     memloc = 0x0010
-#     value = 0xfafa
-#     cpu.mem.set(memloc, value)
-#     cpu.reg[reg] = memloc
-    
+@pytest.mark.parametrize(('set_code', 'get_code', 'reg'), [
+    (0x08, 0x08, 'a'),
+    (0x09, 0x09, 'b'),
+    (0x0a, 0x0a, 'c'),
+    (0x0b, 0x0b, 'x'),
+    (0x0c, 0x0c, 'y'),
+    (0x0d, 0x0d, 'z'),
+    (0x0e, 0x0e, 'i'),
+    (0x0f, 0x0f, 'j'),
+    ])
+def test_cpu_register_memory_value_codes(cpu, set_code, get_code, reg):
+    memloc = 0x0010
+    value = 0xfafa
+    cpu.reg[reg] = memloc
+    cpu.set_by_code(set_code, value)
+    assert cpu.ram.get(memloc) == value
+    assert cpu.get_by_code(get_code) == value
+
+@pytest.mark.parametrize(('set_code', 'get_code', 'reg'), [
+    (0x10, 0x10, 'a'),
+    (0x11, 0x11, 'b'),
+    (0x12, 0x12, 'c'),
+    (0x13, 0x13, 'x'),
+    (0x14, 0x14, 'y'),
+    (0x15, 0x15, 'z'),
+    (0x16, 0x16, 'i'),
+    (0x17, 0x17, 'j'),
+    ])
+def test_cpu_register_memory_value_codes(cpu, set_code, get_code, reg):
+    memloc = 0x0020
+    value = 0xfafa
+    # set PC to an arbitrary value
+    pc_start = 0x0002
+    cpu.reg['pc'] = pc_start
+    # set next word to arbitrary small value
+    next_word = 0x0010
+    cpu.ram.set(0x0002, 0x0010)
+    cpu.reg[reg] = memloc - next_word
+    cpu.set_by_code(set_code, value)
+    assert cpu.ram.get(memloc) == value
+    assert cpu.reg['pc'] == pc_start + 1
+    # because set in this case mutates state, we need to reset pc before get
+    cpu.reg['pc'] = pc_start
+    assert cpu.get_by_code(get_code) == value
+    assert cpu.reg['pc'] == pc_start + 1
+
+def test_cpu_pop_peek_push_value_codes(cpu):
+    assert cpu.reg['sp'] == 0x0000
+    cpu.set_by_code(0x1a, 0x0010)
+    cpu.set_by_code(0x1a, 0x0020)
+    cpu.set_by_code(0x1a, 0x0030)
+    cpu.set_by_code(0x1a, 0x0011)
+    assert cpu.reg['sp'] == 0x0000 - 4 % 2**cpu.reg.word_length
+    assert cpu.get_by_code(0x19) == 0x0011
+    cpu.set_by_code(0x19, 0x0040)
+    assert cpu.get_by_code(0x19) == 0x0040
+    assert cpu.reg['sp'] == 0x0000 - 4 % 2**cpu.reg.word_length
+    assert cpu.get_by_code(0x18) == 0x0040
+    assert cpu.reg['sp'] == 0x0000 - 3 % 2**cpu.reg.word_length
+    assert cpu.get_by_code(0x18) == 0x0030
+    assert cpu.reg['sp'] == 0x0000 - 2 % 2**cpu.reg.word_length
+    cpu.set_by_code(0x18, 0x0011)
+    assert cpu.reg['sp'] == 0x0000 - 1 % 2**cpu.reg.word_length
+    assert cpu.ram.get(cpu.reg.sp - 1) == 0x0011
+    assert cpu.get_by_code(0x1a) == 0x0011
+    assert cpu.reg['sp'] == 0x0000 - 2 % 2**cpu.reg.word_length
+
+def test_sp_pc_o_value_codes(cpu):
+    cpu.set_by_code(0x1b, 0x0001)
+    assert cpu.reg.sp == 0x0001
+    assert cpu.get_by_code(0x1b) == 0x0001
+    cpu.set_by_code(0x1c, 0x0002)
+    assert cpu.reg.pc == 0x0002
+    assert cpu.get_by_code(0x1c) == 0x0002
+    cpu.set_by_code(0x1d, 0x0003)
+    assert cpu.reg.o == 0x0003
+    assert cpu.get_by_code(0x1d) == 0x0003
+
+def test_next_word_value_codes(cpu):
+    assert cpu.reg.pc == 0x0000
+    cpu.ram.set(0x0000, 0x0010)
+    cpu.ram.set(0x0001, 0x0020)
+    cpu.set_by_code(0x1e, 0x0030)
+    assert cpu.ram.get(0x0010) == 0x0030
+    assert cpu.reg.pc == 0x0001
+    # should do nothing
+    cpu.set_by_code(0x1f, 0x0040)
+    assert cpu.reg.pc == 0x0001
+    assert cpu.ram.get(0x0010) == 0x0030
+    assert cpu.ram.get(0x0000) == 0x0010
+    assert cpu.ram.get(0x0001) == 0x0020
+    assert cpu.get_by_code(0x1f) == 0x0020
+    assert cpu.reg.pc == 0x0002
+
+def test_literal_value_codes(cpu):
+    for x in range(0x00, 0x20):
+        assert cpu.get_by_code(x + 0x20) == x
+        cpu.set_by_code(x + 0x20, 0xffff)
+        assert cpu.get_by_code(x + 0x20) == x
+
+def test_compile_decompile_word():
+    assert compile_word(0x00, 0x00, 0x0) == 0x0000
+    assert compile_word(0x03, 0x01, 0x2) == 0b0000110000010010 # ADD register B to register X and put in register B
+    assert decompile_word(0b0000110000010010) == (0x03, 0x01, 0x2)
+
+def test_SET(cpu):
+    assert cpu.reg.b == 0x0000
+    cpu.ram.set(0x0000, compile_word(0x22, 0x01, 0x1)) # set reg b to literal 2
+    cpu.step()
+    assert cpu.reg.b == 0x0002
+    assert cpu.cycle == 1
+    assert cpu.reg.pc == 1
+
+def test_ADD(cpu):
+    cpu.reg.b = 0x0004
+    cpu.ram.set(0x0000, compile_word(0x22, 0x01, 0x2)) # set reg b to literal 2 + 4
+    cpu.step()
+    assert cpu.reg.b == 0x0006
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0
+
+def test_ADD_o(cpu):
+    cpu.reg.a = 0xf000
+    cpu.reg.b = 0x2000
+    cpu.ram.set(0x0000, compile_word(0x01, 0x00, 0x2)) # set reg a to a + b
+    cpu.step()
+    assert cpu.reg.a == 0x1000
+    assert cpu.reg.b == 0x2000
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 1
+
+def test_SUB(cpu):
+    cpu.reg.b = 0x0005
+    cpu.ram.set(0x0000, compile_word(0x22, 0x01, 0x3)) # set reg b to 5 - literal 2
+    cpu.step()
+    assert cpu.reg.b == 0x0003
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0
+
+def test_SUB_o(cpu):
+    cpu.reg.a = 0x1000
+    cpu.reg.b = 0xf000
+    cpu.ram.set(0x0000, compile_word(0x01, 0x00, 0x3)) # set reg a to a - b
+    cpu.step()
+    assert cpu.reg.a == 0x2000
+    assert cpu.reg.b == 0xf000
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0xffff
+
+def test_MUL(cpu):
+    cpu.reg.b = 0x0004
+    cpu.ram.set(0x0000, compile_word(0x22, 0x01, 0x4)) # set reg b to literal 2 * 4
+    cpu.step()
+    assert cpu.reg.b == 0x0008
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0
+
+def test_MUL_o(cpu):
+    cpu.reg.a = 0x02ff
+    cpu.reg.b = 0x00ff
+    cpu.ram.set(0x0000, compile_word(0x01, 0x00, 0x4)) # set reg a to a * b
+    cpu.step()
+    assert cpu.reg.a == 0xfc01
+    assert cpu.cycle == 2
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x0002

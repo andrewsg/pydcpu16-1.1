@@ -22,25 +22,6 @@ class Opcode(Enum):
 class NonBasicOpcode(Enum):
     JSR = 0x01
 
-OPCODE_COST = {
-    Opcode.SET: 1,
-    Opcode.ADD: 2,
-    Opcode.SUB: 2,
-    Opcode.MUL: 2,
-    Opcode.DIV: 3,
-    Opcode.MOD: 3,
-    Opcode.SHL: 2,
-    Opcode.SHR: 2,
-    Opcode.AND: 1,
-    Opcode.BOR: 1,
-    Opcode.XOR: 1,
-    Opcode.IFE: 2, # plus 1 if test fails
-    Opcode.IFN: 2, # plus 1 if test fails
-    Opcode.IFG: 2, # plus 1 if test fails
-    Opcode.IFB: 2, # plus 1 if test fails
-    NonBasicOpcode.JSR: 2,
-}
-
 def sanitized_value(value, word_length):
     if not isinstance(value, int):
         value = int(value)
@@ -49,6 +30,14 @@ def sanitized_value(value, word_length):
 
 def does_overflow(value, word_length):
     return not 0 <= value < 2**word_length
+
+# helper method to construct valid 16-bit op word
+def compile_word(b, a, o):
+    return o + (a << 4) + (b << 10)
+
+# returns (b, a, o)
+def decompile_word(word):
+    return word >> 10, (word >> 4) & 0b000000111111, word & 0b0000000000001111
 
 class RAM():
     # initial_contents must be a list of words!
@@ -119,10 +108,12 @@ class CPU():
         self.ram = initial_ram
         self.cycle = initial_cycle
 
+        # TODO: maybe change these to simply pass the opcode into the lambda, instead of using partials?
+
         self.value_codes = {}
         self.value_codes.update({x: partial(lambda y: self.reg[self.reg.regs[y]], x) for x in range(0x00, 0x08)})
         self.value_codes.update({x + 0x08: partial(lambda y: self.ram.get(self.reg[self.reg.regs[y]]), x) for x in range(0x00, 0x08)})
-        self.value_codes.update({x + 0x10: partial(lambda y: self.ram.get(self.add(self.next_word(), self.reg[self.reg.regs[y]])), x) for x in range(0x00, 0x08)})
+        self.value_codes.update({x + 0x10: partial(lambda y: self.ram.get(self.next_word() + self.reg[self.reg.regs[y]]), x) for x in range(0x00, 0x08)})
 
         self.value_codes.update({
             0x18: lambda: self.pop(),
@@ -136,20 +127,20 @@ class CPU():
         })
 
         for x in range(0x20):
-            self.value_codes[x + 0x20] = lambda: x
+            self.value_codes[x + 0x20] = partial(lambda y: y, x)
 
         self.set_codes = {}
         self.set_codes.update({x: partial(lambda y, value: self.reg.__setitem__(self.reg.regs[y], value), x) for x in range(0x00, 0x08)})
         self.set_codes.update({x + 0x08: partial(lambda y, value: self.ram.set(self.reg[self.reg.regs[y]], value), x) for x in range(0x00, 0x08)})
-        self.set_codes.update({x + 0x10: partial(lambda y, value: self.ram.set(self.add(self.next_word(), self.reg[self.reg.regs[y]]), value), x) for x in range(0x00, 0x08)})
+        self.set_codes.update({x + 0x10: partial(lambda y, value: self.ram.set(self.next_word() + self.reg[self.reg.regs[y]], value), x) for x in range(0x00, 0x08)})
 
         self.set_codes.update({
             0x18: lambda value: self.pop(value),
             0x19: lambda value: self.ram.set(self.reg.sp, value),
             0x1a: lambda value: self.push(value),
-            0x1b: lambda value: self.regs.__setitem__('sp', value),
-            0x1c: lambda value: self.regs.__setitem__('pc', value),
-            0x1d: lambda value: self.regs.__setitem__('o', value),
+            0x1b: lambda value: self.reg.__setitem__('sp', value),
+            0x1c: lambda value: self.reg.__setitem__('pc', value),
+            0x1d: lambda value: self.reg.__setitem__('o', value),
             0x1e: lambda value: self.ram.set(self.next_word(), value),
             0x1f: lambda value: None,
         })
@@ -157,36 +148,34 @@ class CPU():
         for x in range(0x20):
             self.set_codes[x + 0x20] = lambda value: None
 
-    def step(self):
-        # read PC
-        word = self.next_word()
-        b, a, o = word[0:5], word[6:11], word[12:15]
-        opcode = Opcode(int(o))
-        if opcode == Opcode.NONBASIC:
-            opcode = NonBasicOpcode(int(a))
-
-        # execute instruction
-        self.execute(opcode, a, b)
+        self.opcodes = {
+            Opcode.SET: self.SET,
+            Opcode.ADD: self.ADD,
+            Opcode.SUB: self.SUB,
+            Opcode.MUL: self.MUL,
+            Opcode.DIV: self.DIV,
+            Opcode.MOD: self.MOD,
+            }
 
     def next_word(self):
-        word = self.ram.get(self.pc)
-        self.pc += 1
+        word = self.ram.get(self.reg.pc)
+        self.reg.pc += 1
         return word
 
     def pop(self, value=None):
         if value:
-            self.ram.set(self.sp, value)
+            self.ram.set(self.reg.sp, value)
         else:
-            value = self.ram.get(self.sp)
-        sp += 1
+            value = self.ram.get(self.reg.sp)
+        self.reg.sp += 1
         return value
 
     def push(self, value=None):
-        sp -= 1
+        self.reg.sp -= 1
         if value:
-            self.ram.set(self.sp, value)
+            self.ram.set(self.reg.sp, value)
         else:
-            value = self.ram.get(self.sp)
+            value = self.ram.get(self.reg.sp)
         return value
 
     def get_by_code(self, code):
@@ -199,7 +188,57 @@ class CPU():
             self.cycle += 1
         self.set_codes[code](value)
 
-    def execute(self, opcode, a, b):
-        cycle += OPCODE_COST[opcode]
-        # run thingie
-        # profit
+    def step(self):
+        # read PC
+        word = self.next_word()
+        b, a, o = decompile_word(word)
+        opcode = Opcode(o)
+        if opcode == Opcode.NONBASIC:
+            opcode = NonBasicOpcode(a)
+
+        # execute instruction
+        self.execute_op(opcode, a, b)
+
+    def execute_op(self, opcode, a, b):
+        self.opcodes[opcode](a, b)
+
+    def SET(self, a, b):
+        self.cycle += 1
+        self.set_by_code(a, self.get_by_code(b))
+
+    def ADD(self, a, b):
+        self.cycle += 2
+        value = self.get_by_code(a) + self.get_by_code(b)
+        self.set_by_code(a, value)
+        # technically, this doesn't support the case that ram and regs are different word lengths.
+        self.reg.o = 0 if value < 2**self.reg.word_length else 0x0001
+
+    def SUB(self, a, b):
+        self.cycle += 2
+        value = self.get_by_code(a) - self.get_by_code(b)
+        self.set_by_code(a, value)
+        # technically, this doesn't support the case that ram and regs are different word lengths.
+        self.reg.o = 0 if value >= 0 else 0xffff
+
+    def MUL(self, a, b):
+        self.cycle += 2
+        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
+        self.set_by_code(a, a_val * b_val)
+        self.reg.o = ((a_val*b_val)>>16)&0xffff
+
+    def DIV(self, a, b):
+        self.cycle += 3
+        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
+        try:
+            self.set_by_code(a, a_val // b_val)
+            self.reg.o = ((a_val<<16)//b_val)&0xffff
+        except ZeroDivisionError:
+            self.set_by_code(a, 0)
+
+    def MOD(self, a, b):
+        self.cycle += 3
+        a_val, b_val = self.get_by_code(a), self.get_by_code(b)
+        try:
+            self.set_by_code(a, a_val % b_val)
+        except ZeroDivisionError:
+            self.set_by_code(a, 0)

@@ -112,46 +112,6 @@ class CPU():
         self.ram = initial_ram
         self.cycle = initial_cycle
 
-        # TODO: maybe change these to simply pass the opcode into the lambda, instead of using partials?
-
-        self.value_codes = {}
-        self.value_codes.update({x: partial(lambda y: self.reg[self.reg.regs[y]], x) for x in range(0x00, 0x08)})
-        self.value_codes.update({x + 0x08: partial(lambda y: self.ram.get(self.reg[self.reg.regs[y]]), x) for x in range(0x00, 0x08)})
-        self.value_codes.update({x + 0x10: partial(lambda y: self.ram.get(self.next_word() + self.reg[self.reg.regs[y]]), x) for x in range(0x00, 0x08)})
-
-        self.value_codes.update({
-            0x18: lambda: self.pop(),
-            0x19: lambda: self.peek(),
-            0x1a: lambda: self.push(),
-            0x1b: lambda: self.reg.sp,
-            0x1c: lambda: self.reg.pc,
-            0x1d: lambda: self.reg.o,
-            0x1e: lambda: self.ram.get(self.next_word()),
-            0x1f: lambda: self.next_word(),
-        })
-
-        for x in range(0x20):
-            self.value_codes[x + 0x20] = partial(lambda y: y, x)
-
-        self.set_codes = {}
-        self.set_codes.update({x: partial(lambda y, value: self.reg.__setitem__(self.reg.regs[y], value), x) for x in range(0x00, 0x08)})
-        self.set_codes.update({x + 0x08: partial(lambda y, value: self.ram.set(self.reg[self.reg.regs[y]], value), x) for x in range(0x00, 0x08)})
-        self.set_codes.update({x + 0x10: partial(lambda y, value: self.ram.set(self.next_word() + self.reg[self.reg.regs[y]], value), x) for x in range(0x00, 0x08)})
-
-        self.set_codes.update({
-            0x18: lambda value: self.pop(value),
-            0x19: lambda value: self.peek(value),
-            0x1a: lambda value: self.push(value),
-            0x1b: lambda value: self.reg.__setitem__('sp', value),
-            0x1c: lambda value: self.reg.__setitem__('pc', value),
-            0x1d: lambda value: self.reg.__setitem__('o', value),
-            0x1e: lambda value: self.ram.set(self.next_word(), value),
-            0x1f: lambda value: None,
-        })
-
-        for x in range(0x20):
-            self.set_codes[x + 0x20] = lambda value: None
-
         self.operands = {}
         self.operands.update({x: lambda code: self.reg.regs[code] for x in range(0x00, 0x08)})
         self.operands.update({x + 0x08: lambda code: self.reg[self.reg.regs[code - 0x08]] for x in range(0x00, 0x08)})
@@ -167,77 +127,83 @@ class CPU():
             0x1e: lambda code: self.next_word(),
         })
 
-        self.opcodes = {
-            Opcode.SET: self.SET,
-            Opcode.ADD: self.ADD,
-            Opcode.SUB: self.SUB,
-            Opcode.MUL: self.MUL,
-            Opcode.DIV: self.DIV,
-            Opcode.MOD: self.MOD,
-            Opcode.SHL: self.SHL,
-            Opcode.SHR: self.SHR,
-            Opcode.AND: self.AND,
-            Opcode.BOR: self.BOR,
-            Opcode.XOR: self.XOR,
-            Opcode.IFE: self.IFE,
-            Opcode.IFN: self.IFN,
-            Opcode.IFG: self.IFG,
-            Opcode.IFB: self.IFB,
-            NonBasicOpcode.JSR: self.JSR,
-            }
-
     def next_word(self):
         word = self.ram.get(self.reg.pc)
         self.reg.pc += 1
         return word
 
-    def pop(self, value=None):
-        if value:
-            self.ram.set(self.reg.sp, value)
-        else:
-            value = self.ram.get(self.reg.sp)
+    def pop_addr(self):
+        address = self.reg.sp
         self.reg.sp += 1
-        return value
+        return address
 
-    def push(self, value=None):
+    def push_addr(self):
         self.reg.sp -= 1
-        if value:
-            self.ram.set(self.reg.sp, value)
-        else:
-            value = self.ram.get(self.reg.sp)
-        return value
+        return self.reg.sp
 
-    def peek(self, value=None):
-        if value:
-            self.ram.set(self.reg.sp, value)
-        else:
-            value = self.ram.get(self.reg.sp)
-        return value
+    def peek_addr(self):
+        return self.reg.sp
 
-    def get_by_code(self, code):
-        if (0x10 <= code <= 0x17) or code in [0x1e, 0x1f]:
+    def needs_next_word(self, operand):
+        return (0x10 <= operand <= 0x17) or operand in [0x1e, 0x1f]
+
+    # This has side effects (it can increment PC or affect SP)
+    def address_for_operand(self, operand):
+        if self.needs_next_word(operand):
             self.cycle += 1
-        return self.value_codes[code]()
+        try:
+            return self.operands[operand](operand)
+        except KeyError:
+            return None
+
+    # This has no side effects except in the case of code=0x1f, in which case PC++
+    def get_by_address(self, address, code=None):
+        if address is None and code is not None:
+            if code == 0x1f:
+                return self.next_word()
+            elif 0x20 <= code <= 0x3f:
+                return code - 0x20
+            else:
+                raise ValueError
+        elif isinstance(address, int):
+            return self.ram.get(address)
+        else:
+            return self.reg[address]
+
+    def set_by_address(self, address, value):
+        if isinstance(address, int):
+            self.ram.set(address, value)
+        else:
+            self.reg[address] = value
+
+    def get_by_code(self, code, return_addr=False):
+        addr = self.address_for_operand(code)
+        value = self.get_by_address(addr, code=code)
+        return value if not return_addr else (value, addr)
 
     def set_by_code(self, code, value):
-        if (0x10 <= code <= 0x17) or code in [0x1e, 0x1f]:
-            self.cycle += 1
-        self.set_codes[code](value)
+        addr = self.address_for_operand(code)
+        if addr:
+            self.set_by_address(addr, value)
+        else:
+            pass
 
     def step(self):
-        # read PC
         word = self.next_word()
         b, a, o = decompile_word(word)
+
         opcode = Opcode(o)
         if opcode == Opcode.NONBASIC:
             opcode = NonBasicOpcode(a)
-        self.execute_op(opcode, a, b)
+            a, b = b, None
 
-    def execute_op(self, opcode, a, b):
-        if isinstance(opcode, NonBasicOpcode):
-            self.opcodes[opcode](b) # b becomes a
+        a_val, addr = self.get_by_code(a, return_addr=True)
+        operation = getattr(self, opcode.name)
+        if not isinstance(opcode, NonBasicOpcode):
+            b_val = self.get_by_code(b)
+            operation(a_val, b_val, addr)
         else:
-            self.opcodes[opcode](a, b)
+            operation(a_val, addr)
 
     def SET(self, a, b, addr):
         self.cycle += 1
@@ -336,62 +302,6 @@ class CPU():
 
     def JSR(self, a, addr):
         self.cycle += 2
-        self.push(self.reg.pc)
+        addr = self.push_addr()
+        self.set_by_address(addr, self.reg.pc)
         self.reg.pc = a
-
-    def pop_addr(self, value=None):
-        address = self.reg.sp
-        self.reg.sp += 1
-        return address
-
-    def push_addr(self, value=None):
-        self.reg.sp -= 1
-        return self.reg.sp
-
-    def peek_addr(self, value=None):
-        return self.reg.sp
-
-    def needs_next_word(self, operand):
-        return (0x10 <= operand <= 0x17) or operand in [0x1e, 0x1f]
-
-    # This has side effects (it can increment PC or affect SP)
-    def address_for_operand(self, operand):
-        if self.needs_next_word(operand):
-            self.cycle += 1
-        try:
-            return self.operands[operand](operand)
-        except KeyError:
-            return None
-
-    # This has no side effects.
-    def get_by_address(self, address, code=None):
-        if address is None and code is not None:
-            return self.value_codes[code]() # TODO: refactor
-        elif isinstance(address, int):
-            return self.ram.get(address)
-        else:
-            return self.reg[address]
-
-    def set_by_address(self, address, value):
-        if isinstance(address, int):
-            self.ram.set(address, value)
-        else:
-            self.reg[address] = value
-
-    def step(self):
-        word = self.next_word()
-        b, a, o = decompile_word(word)
-
-        opcode = Opcode(o)
-        if opcode == Opcode.NONBASIC:
-            opcode = NonBasicOpcode(a)
-            a, b = b, None
-
-        a_addr = self.address_for_operand(a)
-        a_val = self.get_by_address(a_addr, code=a)
-        if not isinstance(opcode, NonBasicOpcode):
-            b_addr = self.address_for_operand(b)
-            b_val = self.get_by_address(b_addr, code=b)
-            self.opcodes[opcode](a_val, b_val, a_addr)
-        else:
-            self.opcodes[opcode](a_val, a_addr)

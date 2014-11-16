@@ -104,33 +104,6 @@ def test_register_bank():
     regbank.pc += 1
     assert regbank.pc == 0x0000
 
-# "additional" is a function, to which the CPU will be passed as an argument and which must evaluate to true on success. It is optional.
-@pytest.mark.parametrize(("set_code_value_pairs", "get_code", "expected", "additional"), [
-   ([(0x00, 0xffff)], 0x00, 0xffff, lambda cpu: cpu.reg['a'] == 0xffff),
-    ([(0x01, 0xffff)], 0x01, 0xffff, lambda cpu: cpu.reg['b'] == 0xffff),
-    ([(0x02, 0xffff)], 0x02, 0xffff, lambda cpu: cpu.reg['c'] == 0xffff),
-    ([(0x03, 0xffff)], 0x03, 0xffff, lambda cpu: cpu.reg['x'] == 0xffff),
-    ([(0x04, 0xffff)], 0x04, 0xffff, lambda cpu: cpu.reg['y'] == 0xffff),
-    ([(0x05, 0xffff)], 0x05, 0xffff, lambda cpu: cpu.reg['z'] == 0xffff),
-    ([(0x06, 0xffff)], 0x06, 0xffff, lambda cpu: cpu.reg['i'] == 0xffff),
-    ([(0x07, 0xffff)], 0x07, 0xffff, lambda cpu: cpu.reg['j'] == 0xffff),
-    ([(0x00, 0x0002), (0x08, 0xffff)], 0x08, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    ([(0x01, 0x0002), (0x09, 0xffff)], 0x09, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    ([(0x02, 0x0002), (0x0a, 0xffff)], 0x0a, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    ([(0x03, 0x0002), (0x0b, 0xffff)], 0x0b, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    ([(0x04, 0x0002), (0x0c, 0xffff)], 0x0c, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    ([(0x05, 0x0002), (0x0d, 0xffff)], 0x0d, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    ([(0x06, 0x0002), (0x0e, 0xffff)], 0x0e, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    ([(0x07, 0x0002), (0x0f, 0xffff)], 0x0f, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-    #([(0x1c, 0x0010), (0x00, 0x0010), (0x08], 0x0f, 0xffff, lambda cpu: cpu.ram.get(0x0002) == 0xffff),
-   ])
-def test_cpu_value_codes(cpu, set_code_value_pairs, get_code, expected, additional):
-    for pair in set_code_value_pairs:
-        cpu.set_by_code(*pair)
-    assert cpu.get_by_code(get_code) == expected
-    if additional:
-        assert additional(cpu)
-
 @pytest.mark.parametrize(('set_code', 'get_code', 'reg'), [
     (0x00, 0x00, 'a'),
     (0x01, 0x01, 'b'),
@@ -141,7 +114,7 @@ def test_cpu_value_codes(cpu, set_code_value_pairs, get_code, expected, addition
     (0x06, 0x06, 'i'),
     (0x07, 0x07, 'j'),
     ])
-def test_cpu_register_value_codes(cpu, set_code, get_code, reg):
+def test_cpu_register_operand_codes(cpu, set_code, get_code, reg):
     value = 0x0101
     cpu.set_by_code(set_code, value)
     assert cpu.get_by_code(get_code) == value
@@ -157,7 +130,7 @@ def test_cpu_register_value_codes(cpu, set_code, get_code, reg):
     (0x0e, 0x0e, 'i'),
     (0x0f, 0x0f, 'j'),
     ])
-def test_cpu_register_memory_value_codes(cpu, set_code, get_code, reg):
+def test_cpu_register_memory_operand_codes(cpu, set_code, get_code, reg):
     memloc = 0x0010
     value = 0xfafa
     cpu.reg[reg] = memloc
@@ -175,7 +148,7 @@ def test_cpu_register_memory_value_codes(cpu, set_code, get_code, reg):
     (0x16, 0x16, 'i'),
     (0x17, 0x17, 'j'),
     ])
-def test_cpu_register_memory_value_codes(cpu, set_code, get_code, reg):
+def test_cpu_register_memory_operand_codes(cpu, set_code, get_code, reg):
     memloc = 0x0020
     value = 0xfafa
     # set PC to an arbitrary value
@@ -193,7 +166,7 @@ def test_cpu_register_memory_value_codes(cpu, set_code, get_code, reg):
     assert cpu.get_by_code(get_code) == value
     assert cpu.reg['pc'] == pc_start + 1
 
-def test_cpu_pop_peek_push_value_codes(cpu):
+def test_cpu_pop_peek_push_operand_codes(cpu):
     assert cpu.reg['sp'] == 0x0000
     cpu.set_by_code(0x1a, 0x0010)
     cpu.set_by_code(0x1a, 0x0020)
@@ -214,7 +187,7 @@ def test_cpu_pop_peek_push_value_codes(cpu):
     assert cpu.get_by_code(0x1a) == 0x0011
     assert cpu.reg['sp'] == (0x0000 - 2) % 2**cpu.reg.word_length
 
-def test_sp_pc_o_value_codes(cpu):
+def test_sp_pc_o_operand_codes(cpu):
     cpu.set_by_code(0x1b, 0x0001)
     assert cpu.reg.sp == 0x0001
     assert cpu.get_by_code(0x1b) == 0x0001
@@ -225,7 +198,7 @@ def test_sp_pc_o_value_codes(cpu):
     assert cpu.reg.o == 0x0003
     assert cpu.get_by_code(0x1d) == 0x0003
 
-def test_next_word_value_codes(cpu):
+def test_next_word_operand_codes(cpu):
     assert cpu.reg.pc == 0x0000
     cpu.ram.set(0x0000, 0x0010)
     cpu.ram.set(0x0001, 0x0020)
@@ -241,7 +214,7 @@ def test_next_word_value_codes(cpu):
     assert cpu.get_by_code(0x1f) == 0x0020
     assert cpu.reg.pc == 0x0002
 
-def test_literal_value_codes(cpu):
+def test_literal_operand_codes(cpu):
     for x in range(0x00, 0x20):
         assert cpu.get_by_code(x + 0x20) == x
         cpu.set_by_code(x + 0x20, 0xffff)
@@ -487,7 +460,7 @@ def test_JSR(cpu):
     cpu.step()
     assert cpu.cycle == 2
     assert cpu.reg.pc == 5
-    assert cpu.peek() == 1
+    assert cpu.ram.get(cpu.reg.sp) == 1
 
 def test_a_handled_before_b(cpu):
     cpu.ram.set(0x0000, 0x7de1) # SET [next_word], next_word

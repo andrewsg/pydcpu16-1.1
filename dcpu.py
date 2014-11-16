@@ -28,9 +28,6 @@ def sanitized_value(value, word_length):
     value = value % 2**word_length
     return value
 
-def does_overflow(value, word_length):
-    return not 0 <= value < 2**word_length
-
 # helper method to construct valid 16-bit op word
 def compile_word(b, a, o):
     return o + (a << 4) + (b << 10)
@@ -69,9 +66,6 @@ class DCPURegisterBank():
         for reg in self.all_regs:
             self[reg] = values[reg]
 
-    def __len__(self):
-        return len(self.all_regs)
-
     def __getitem__(self, key):
         if key in self.all_regs:
             return getattr(self, key)
@@ -87,17 +81,10 @@ class DCPURegisterBank():
     def __iter__(self):
         return iter(self.all_regs)
 
-    def __contains__(self, key):
-        return key in self.all_regs
-
     def __setattr__(self, name, value):
         if name in self.all_regs:
             value = sanitized_value(value, self.word_length)
         super().__setattr__(name, value)
-
-    def items(self):
-        for key in self.all_regs:
-            return (key, getattr(self, key))
 
 class CPU():
     # initial_registers must be a dictionary with a, b, c, x, y, z, i, j, pc, sp, o.
@@ -163,8 +150,6 @@ class CPU():
                 return self.next_word()
             elif 0x20 <= code <= 0x3f:
                 return code - 0x20
-            else:
-                raise ValueError
         elif isinstance(address, int):
             return self.ram.get(address)
         else:
@@ -292,7 +277,7 @@ class CPU():
             self.skip_next_and_cycle()
 
     def skip_next_and_cycle(self):
-        word = self.next_word() # this is destructive!
+        word = self.next_word() # this increments PC!
         b, a, o = decompile_word(word)
         if self.needs_next_word(a):
             self.next_word()

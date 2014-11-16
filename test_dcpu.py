@@ -314,3 +314,48 @@ def test_MUL_o(cpu):
     assert cpu.cycle == 2
     assert cpu.reg.pc == 1
     assert cpu.reg.o == 0x0002
+
+def test_DIV(cpu):
+    cpu.reg.b = 0x0009
+    cpu.ram.set(0x0000, compile_word(0x23, 0x01, 0x5)) # set reg b to 9 // literal 3
+    cpu.step()
+    assert cpu.reg.b == 0x0003
+    assert cpu.cycle == 3
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0
+
+def test_DIV_o(cpu):
+    cpu.reg.b = 0x0009
+    cpu.ram.set(0x0000, compile_word(0x22, 0x01, 0x5)) # set reg b to 9 // literal 2
+    cpu.step()
+    assert cpu.reg.b == 0x0004
+    assert cpu.cycle == 3
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x8000
+
+def test_DIV_zero(cpu):
+    cpu.reg.b = 0x0009
+    cpu.ram.set(0x0000, compile_word(0x20, 0x01, 0x5)) # set reg b to 9 // literal 0
+    cpu.step()
+    assert cpu.reg.b == 0x0000
+    assert cpu.cycle == 3
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x0000
+
+def test_MOD(cpu):
+    cpu.reg.b = 0x0009
+    cpu.ram.set(0x0000, compile_word(0x22, 0x01, 0x6)) # set reg b to 9 % literal 2
+    cpu.step()
+    assert cpu.reg.b == 0x0001
+    assert cpu.cycle == 3
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x0000
+
+def test_MOD_zero(cpu):
+    cpu.reg.b = 0x0009
+    cpu.ram.set(0x0000, compile_word(0x20, 0x01, 0x6)) # set reg b to 9 % literal 0
+    cpu.step()
+    assert cpu.reg.b == 0x0000
+    assert cpu.cycle == 3
+    assert cpu.reg.pc == 1
+    assert cpu.reg.o == 0x0000
